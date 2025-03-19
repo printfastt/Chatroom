@@ -4,7 +4,6 @@ import threading
 HOST = '127.0.0.1'
 PORT = 11259
 
-user = None
 users = {}
 active_users = {}
 file_created = False
@@ -47,22 +46,27 @@ def broadcast(message, exclude_user=None):
     for username, (conn, addr) in active_users.items():
         if username != exclude_user:
             try:
-                conn.sendall(message.encode())
+                conn.sendall((message).encode())
             except:
                 pass
+
 
 def handle_login(command, conn, addr, user):
     global active_users
     if user is not None:
         conn.sendall(b"Denied. Already logged in.")
+        return user
     else:
         _, username, password = command.split()
         if username in users and users[username] == password:
             active_users[username] = (conn, addr)
-            conn.sendall(b"login confirmed")
-            broadcast(f"{username} joins.", exclude_user=user)
+            conn.sendall(b"Login Confirmed")
+            print(username)
+            broadcast(f"Sever: {username.strip()} joins.", exclude_user=username)
+            return username
         else:
-            conn.sendall(b"Denied. Username or password incorrect.")
+            conn.sendall(b"Denied. Username or password incorrect.\n")
+
 
 def handle_newuser(command, conn, user):
     _, newusername, password = command.split()
@@ -79,17 +83,17 @@ def handle_logout(conn, user):
         print(f"Client {user} : {addr} logged out.")
         conn.sendall(b"Logout successful.")
         del active_users[user]
-        broadcast(f"{user} left.", exclude_user=user)
+        #broadcast(f"Server: {user} left.", exclude_user=user)
         conn.close()
-   
 
+    
 
 def handle_send(command, conn, user):
     parts = command.split(maxsplit=2)
 
-    if parts[1].lower() == "all":
+    if parts[1].lower().strip() == "all":
         message = parts[2]
-        broadcast(f"{user}: {message}")
+        broadcast(f"> {user}: {message}")
     else:
         target = parts[1]
         message = parts[2]
@@ -97,7 +101,7 @@ def handle_send(command, conn, user):
             target_conn, _ = active_users[target]
             try:
                 target_conn.sendall(f"[private] {user}: {message}".encode())
-                conn.sendall(f"{user} (to {target}): {message}".encode())
+                #conn.sendall(f"{user} (to {target}): {message}".encode())
             except:
                 conn.sendall(b"Error sending message")
         else:
@@ -106,18 +110,28 @@ def handle_send(command, conn, user):
 
 def handle_who(conn):
     if active_users:
-        user_list = ", ".join(active_users.keys())
+        user_list = " ".join(active_users.keys())
         conn.sendall(user_list.encode())
     else:
         conn.sendall(b"No active logged-in users.")
 
+
+
+####NOTE
+####NOTE
+####NOTE
+####CARSON
+####YOU NEED TO REPLACE A LOT OF SENDALL'S WITH A LOT OF BROADCASTS.
+
+
+
 def handle_client(conn, addr):
-    global user
     user = None
     while True:
         print(f"mainloop:{user}")
         try:
             data = conn.recv(1024).decode().strip()
+            print(f"{user}:{data}")
             if not data:
                 break
         except:
@@ -125,9 +139,8 @@ def handle_client(conn, addr):
 
         if data.startswith("login "):
             print(f"if login:{user}")
-            handle_login(data, conn, addr, user)
-            user = data.split()[1]
-            continue
+            user = handle_login(data, conn, addr, user)
+            
 
         elif data.startswith("newuser "):
             handle_newuser(data, conn, user)
@@ -147,12 +160,11 @@ def handle_client(conn, addr):
 
         elif data == "who":
             handle_who(conn)
-        else:
-            conn.sendall(b"Invalid command.")
+
     conn.close()
     if user and user in active_users:
         del active_users[user]
-        broadcast(f"{user} left.", exclude_user=user)
+        broadcast(f"Server: {user}left.", exclude_user=user)
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

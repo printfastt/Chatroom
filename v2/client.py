@@ -10,19 +10,24 @@ PORT = 11259
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((HOST, PORT))
 exit_event = threading.Event()
+#serverintercepts = ("> ", "Server: ")
 
 def receive():
-    
+    """
+    note: if starts with's to catch if message begins with 'Server' or '>' 
+    """
     while True:
         try:
             data = client_socket.recv(1024).decode()
             if not data:
                 break
+            #if data.strip().startswith(serverintercepts[0]) or data.strip().startswith(serverintercepts[1]):
             if data.strip() == "Logout successful.":
                 exit_event.set()
                 break
             else:
                 print(data)
+                #sys.stdout.write('\r\033[K')
         except:
             break
 
@@ -44,16 +49,17 @@ def stdoutIsReady():
 print("Connected to the server. Type a command:")
 while not exit_event.is_set():
     time.sleep(.01)
-    print("> ", end = "", flush = True)
+    print("//", end = "", flush = True)
     
     while not exit_event.is_set():
         if stdinIsReady():
             command = sys.stdin.readline().strip()
             parts = command.split(maxsplit=2)
+
             if command.startswith("login "):
                 if len(parts) != 3:
                     print("Error: Usage -> login <username> <password>")
-                    continue
+                    break
 
             elif command.startswith("newuser "):
                 if len(parts) != 3:
@@ -66,8 +72,9 @@ while not exit_event.is_set():
 
             elif command == "logout":
                 client_socket.sendall(command.encode())                    
-                exit_event.wait(timeout=5)                      #we need to wait on the server's response so the loop doesnt re-enter prematurely.
-                pass
+                if not exit_event.wait(timeout=.01):                    #waits .01 seconds for response from server to decide if loop should break.
+                    break
+                                                        
 
             elif command.startswith("send "):
                 if len(parts) < 2:
@@ -76,16 +83,25 @@ while not exit_event.is_set():
                 if len(parts[1]) < 1 or len(parts[1]) > 256:
                     print("Error: Message must be 1-256 characters.")
                     break
+                if len(parts) == 2:
+                    print("Error: Usage -> send all <message> OR send <username> <message>")
+                    break
 
+                
             elif command == "who":
                 pass
 
             else:
                 print("Error: Invalid command.")
-                continue
 
 
             client_socket.sendall(command.encode())
             break
 
 client_socket.close()
+
+####NOTE
+####NOTE
+####NOTE
+####CARSON
+####YOU NEED TO REPLACE A LOT OF SENDALL'S WITH A LOT OF BROADCASTS.
