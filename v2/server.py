@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 
 HOST = '127.0.0.1'
 PORT = 11259
@@ -54,36 +55,43 @@ def broadcast(message, exclude_user=None):
 def handle_login(command, conn, addr, user):
     global active_users
     if user is not None:
-        conn.sendall(b"Denied. Already logged in.")
+        conn.sendall(b">> Denied. Already logged in.")
         return user
     else:
         _, username, password = command.split()
+        if username in active_users:
+            conn.sendall(b">> Denied. User already logged in.")
+            return user
         if username in users and users[username] == password:
             active_users[username] = (conn, addr)
-            conn.sendall(b"Login Confirmed")
+            conn.sendall(b">> Login Confirmed.")
             print(username)
-            broadcast(f"Sever: {username.strip()} joins.", exclude_user=username)
+            broadcast(f">> {username.strip()} joins.", exclude_user=username)
             return username
         else:
-            conn.sendall(b"Denied. Username or password incorrect.\n")
+            conn.sendall(b">> Denied. Username or password incorrect.")
 
 
 def handle_newuser(command, conn, user):
     _, newusername, password = command.split()
     if user in active_users:
-        conn.sendall(b"Denied. Already logged in.")
+        conn.sendall(b">> Denied. Already logged in.")
+        return
+    if newusername in users:
+        conn.sendall(f">> Denied. {newusername} already exists.".encode())
         return
     users[newusername] = password
     save_user(newusername, password)
-    conn.sendall(b"New user account created. Please login.")
+    conn.sendall(b">> New user account created. Please login.")
 
 def handle_logout(conn, user):
     global active_users
     if user in active_users:
         print(f"Client {user} : {addr} logged out.")
-        conn.sendall(b"Logout successful.")
+        conn.sendall(b">> Logout successful.")
         del active_users[user]
-        #broadcast(f"Server: {user} left.", exclude_user=user)
+        broadcast(f">> {user} left.", exclude_user=user)
+        #user = None
         conn.close()
 
     
@@ -100,71 +108,70 @@ def handle_send(command, conn, user):
         if target in active_users:
             target_conn, _ = active_users[target]
             try:
-                target_conn.sendall(f"[private] {user}: {message}".encode())
-                #conn.sendall(f"{user} (to {target}): {message}".encode())
-            except:
-                conn.sendall(b"Error sending message")
+                if user.strip() != target.strip():
+                    target_conn.sendall(f"> {user} [private]: {message}".encode())
+                    conn.sendall(f"> {user} (to {target}): {message}".encode())
+                else:
+                    conn.sendall(f"> {user} (to {target}): {message}".encode())
+                    time.sleep(.01)
+                    target_conn.sendall(f"> {user} [private]: {message}".encode())
+            except Exception as a:
+                conn.sendall(b">> Error sending message.")
+                print(a)
         else:
-            conn.sendall(b"Denied. User is not online.")
+            conn.sendall(b">> Denied. User is not online.")
             
 
-def handle_who(conn):
-    if active_users:
-        user_list = " ".join(active_users.keys())
-        conn.sendall(user_list.encode())
+def handle_who(conn, user):
+    if user in active_users:
+        if active_users:
+            user_list = " ".join(active_users.keys())
+            conn.sendall(user_list.encode())
+        else:
+            conn.sendall(b">> No active logged-in users.")
     else:
-        conn.sendall(b"No active logged-in users.")
-
-
-
-####NOTE
-####NOTE
-####NOTE
-####CARSON
-####YOU NEED TO REPLACE A LOT OF SENDALL'S WITH A LOT OF BROADCASTS.
-
+        conn.sendall(b">> Denied. Please login first.")
 
 
 def handle_client(conn, addr):
     user = None
     while True:
-        print(f"mainloop:{user}")
         try:
             data = conn.recv(1024).decode().strip()
-            print(f"{user}:{data}")
+            print(f"{user}: {data}")
+            test = data.split()
             if not data:
                 break
         except:
             break
 
-        if data.startswith("login "):
-            print(f"if login:{user}")
+        if data.startswith("/login "):
             user = handle_login(data, conn, addr, user)
             
 
-        elif data.startswith("newuser "):
+        elif data.startswith("/newuser "):
             handle_newuser(data, conn, user)
 
-        elif data == "logout":
+        elif data == "/logout":
             print(f"if logout:{user}")
             if user == None:
-                conn.sendall(b"Denied. Please login first.")
+                conn.sendall(b">> Denied. Please login first.")
             else:
                 handle_logout(conn,user)
 
-        elif data.startswith("send "):
+        elif data.startswith("/send "):
             if user == None:
-                conn.sendall(b"Denied. Please login first.")
+                conn.sendall(b">>Denied. Please login first.")
             else:
                 handle_send(data, conn, user)
 
-        elif data == "who":
-            handle_who(conn)
+        elif data == "/who":
+            handle_who(conn,user)
 
     conn.close()
     if user and user in active_users:
         del active_users[user]
-        broadcast(f"Server: {user}left.", exclude_user=user)
+        broadcast(f">> {user} left.", exclude_user=user)
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
