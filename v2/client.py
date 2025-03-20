@@ -6,55 +6,48 @@ import select
 
 HOST = '127.0.0.1'
 PORT = 11259
+MAXMESSAGEBYTES = 1024
+EXIT_SENTINEL = '7F3K9P2Q1SJ438FJAU3JFK'
+
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((HOST, PORT))
 exit_event = threading.Event()
-#serverintercepts = ("> ", "Server: ")
-
-import sys
 
 def receive():
-    user_input = "" 
-
+    """
+    Receives messages from the server and prints them without interfering
+    with the user's typed but unsent input.
+    """
     while True:
         try:
-            data = client_socket.recv(1024).decode()
+            data = client_socket.recv(MAXMESSAGEBYTES).decode().strip()
             if not data:
                 break
-            if data.strip() == ">> Logout successful.":
+            elif data == EXIT_SENTINEL:
                 exit_event.set()
                 break
             else:
                 sys.stdout.write("\r\033[K")  
-                
-                print(data.strip())
-
-                sys.stdout.write(f"> {user_input}") 
                 sys.stdout.flush()
-        except:
+            print(data.strip()) 
+
+
+        except Exception as e:
+            print(f"Error in receive(): {e}")
             break
 
-threading.Thread(target=receive, daemon=True).start()
-
 def stdinIsReady():
-    ready,_,_ = select.select([sys.stdin], [], [], .5)
-    return True
+    """Check if there is input available on stdin."""
+    ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+    return bool(ready)
 
-def stdoutIsReady():
-    _,ready,_ = select.select([], [sys.stdout], [], .5)
-    if ready:
-        return False
-    else:
-        return True
+threading.Thread(target=receive, daemon=True).start()
+if not exit_event.wait(timeout=0.2):
+    print(">> Connected to the server. Type login or create newuser:")
 
-
-
-print(">> Connected to the server. Type login or create newuser:")
 while not exit_event.is_set():
-    time.sleep(.01)
-    print("", end = "", flush = True)
-    
+    time.sleep(0.01) 
     while not exit_event.is_set():
         if stdinIsReady():
             command = sys.stdin.readline().strip()
@@ -64,7 +57,7 @@ while not exit_event.is_set():
             if command.startswith("/login "):
                 if len(parts) != 3:
                     print(">> Error: Usage -> login <username> <password>")
-                    break
+                    continue
 
             elif command.startswith("/newuser "):
                 if len(parts) != 3:
@@ -77,31 +70,28 @@ while not exit_event.is_set():
 
             elif command == "/logout":
                 client_socket.sendall(command.encode())                    
-                if not exit_event.wait(timeout=.01):                    #waits .01 seconds for response from server to decide if loop should break.
+                if not exit_event.wait(timeout=0.01):
                     break
-                                                        
 
             elif command.startswith("/send "):
                 if len(parts) < 2:
                     print(">> Error: Usage -> send all <message> OR send <username> <message>")
-                    break
+                    continue
                 if len(parts[1]) < 1 or len(parts[1]) > 256:
                     print(">> Error: Message must be 1-256 characters.")
-                    break
+                    continue
                 if len(parts) == 2:
                     print(">> Error: Usage -> send all <message> OR send <username> <message>")
-                    break
+                    continue
 
-                
             elif command == "/who":
                 pass
 
             else:
                 print(">> Error: Invalid command.")
-                break
-
+                continue
 
             client_socket.sendall(command.encode())
-            break
+            sys.stdout.flush()  
 
 client_socket.close()

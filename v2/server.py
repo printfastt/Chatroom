@@ -9,6 +9,9 @@ users = {}
 active_users = {}
 file_created = False
 MAXCLIENTS = 3
+MAXMESSAGEBYTES = 1024
+EXIT_SENTINEL = '7F3K9P2Q1SJ438FJAU3JFK'
+num_connections = 0
 
 def load_users():
     global users, file_created
@@ -65,8 +68,8 @@ def handle_login(command, conn, addr, user):
         if username in users and users[username] == password:
             active_users[username] = (conn, addr)
             conn.sendall(b">> Login Confirmed.")
-            print(username)
             broadcast(f">> {username.strip()} joins.", exclude_user=username)
+            print(f"Addr {addr} logged in to {username}")
             return username
         else:
             conn.sendall(b">> Denied. Username or password incorrect.")
@@ -85,13 +88,15 @@ def handle_newuser(command, conn, user):
     conn.sendall(b">> New user account created. Please login.")
 
 def handle_logout(conn, user):
+    global num_connections
     global active_users
     if user in active_users:
         print(f"Client {user} : {addr} logged out.")
-        conn.sendall(b">> Logout successful.")
+        conn.sendall(EXIT_SENTINEL.encode())
         del active_users[user]
         broadcast(f">> {user} left.", exclude_user=user)
-        #user = None
+        num_connections = num_connections - 1
+        print(f"Number of connections: {num_connections}")
         conn.close()
 
     
@@ -135,10 +140,19 @@ def handle_who(conn, user):
 
 def handle_client(conn, addr):
     user = None
+    global num_connections
     while True:
         try:
-            data = conn.recv(1024).decode().strip()
-            print(f"{user}: {data}")
+            data = conn.recv(MAXMESSAGEBYTES).decode().strip()
+            print(f">> {user}: {data}")
+
+            if data.strip() == "":
+                print(f"User {user}:{addr} force quit.")
+                num_connections = num_connections - 1
+                print(f"Number of connections: {num_connections}")
+                conn.close()
+                break
+
             test = data.split()
             if not data:
                 break
@@ -153,7 +167,6 @@ def handle_client(conn, addr):
             handle_newuser(data, conn, user)
 
         elif data == "/logout":
-            print(f"if logout:{user}")
             if user == None:
                 conn.sendall(b">> Denied. Please login first.")
             else:
@@ -161,7 +174,7 @@ def handle_client(conn, addr):
 
         elif data.startswith("/send "):
             if user == None:
-                conn.sendall(b">>Denied. Please login first.")
+                conn.sendall(b">> Denied. Please login first.")
             else:
                 handle_send(data, conn, user)
 
@@ -181,6 +194,26 @@ print(f"Server listening on {HOST}:{PORT}...")
 load_users()
 
 while True:
-    conn, addr = server_socket.accept()
-    print(f"Client {addr} connected...")
-    threading.Thread(target=handle_client, args=(conn, addr)).start()
+    try:
+        conn, addr = server_socket.accept()
+        print(f"Client {addr} connected...")
+        if num_connections <= MAXCLIENTS:
+            threading.Thread(target=handle_client, args=(conn, addr)).start()
+            if num_connections == MAXCLIENTS:
+                conn.sendall(b"Server full. Try again later")
+                time.sleep(.01)
+                conn.sendall(EXIT_SENTINEL.encode())
+                conn.close()
+                print(f"Chatroom full. Rejecting client (connections = {num_connections})")
+
+            else:
+                num_connections = num_connections + 1
+                print(f"Number of connections: {num_connections}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+        print("Exiting...")
+        break
+
+
+server_socket.close()
