@@ -10,9 +10,17 @@ active_users = {}
 file_created = False
 MAXCLIENTS = 3
 MAXMESSAGEBYTES = 1024
-EXIT_SENTINEL = '7F3K9P2Q1SJ438FJAU3JFK'
+EXIT_SENTINEL = '7F3K9P2Q1SJ438FJAU3JFK' #random sentinel value for 
 num_connections = 0
 
+
+
+
+
+"""
+Loads user credentials from 'users.txt' into the global users dictionary.  
+Creates the file if missing and warns on formatting errors.  
+"""
 def load_users():
     global users, file_created
     try:
@@ -28,6 +36,13 @@ def load_users():
     except ValueError:
         print("Warning: users.txt not formatted correctly.")
 
+
+
+
+"""
+Saves a user and password to 'users.txt'.  
+Appends to the file unless it's newly created and empty.  
+"""
 def save_user(user, password):
     global file_created
     with open("users.txt", "r+") as file:
@@ -38,6 +53,15 @@ def save_user(user, password):
             file.write(f"\n({user}, {password})")
     file_created = False
 
+
+
+
+
+
+"""
+Checks if a file is empty by reading the first line.  
+Restores the file pointer to its original position.  
+"""
 def isFileEmpty(file):
     current_pos = file.tell()
     file.seek(0)
@@ -45,6 +69,14 @@ def isFileEmpty(file):
     file.seek(current_pos)
     return first_line == ""
 
+
+
+
+
+"""
+Sends a message to all active users except the specified one.  
+Silently ignores failed send attempts.  
+"""
 
 def broadcast(message, exclude_user=None):
     for username, (conn, addr) in active_users.items():
@@ -54,6 +86,14 @@ def broadcast(message, exclude_user=None):
             except:
                 pass
 
+
+
+
+
+"""
+Handles user login by verifying credentials and updating active users.  
+Denies login if already logged in or credentials are incorrect.  
+"""
 
 def handle_login(command, conn, addr, user):
     global active_users
@@ -75,6 +115,13 @@ def handle_login(command, conn, addr, user):
             conn.sendall(b">> Denied. Username or password incorrect.")
 
 
+
+
+
+"""
+Creates a new user account if the username is not taken.  
+Denies request if the user is already logged in.  
+"""
 def handle_newuser(command, conn, user):
     _, newusername, password = command.split()
     if user in active_users:
@@ -87,6 +134,13 @@ def handle_newuser(command, conn, user):
     save_user(newusername, password)
     conn.sendall(b">> New user account created. Please login.")
 
+
+
+
+"""
+Logs out a user, removes them from active users, and updates connections.  
+Notifies others and closes the connection.  
+"""
 def handle_logout(conn, user):
     global num_connections
     global active_users
@@ -100,7 +154,10 @@ def handle_logout(conn, user):
         conn.close()
 
     
-
+"""
+Handles sending messages to all users or a specific user.  
+Sends private messages if a target user is specified.  
+"""
 def handle_send(command, conn, user):
     parts = command.split(maxsplit=2)
 
@@ -125,8 +182,13 @@ def handle_send(command, conn, user):
                 print(a)
         else:
             conn.sendall(b">> Denied. User is not online.")
-            
 
+
+
+"""
+Lists active users if the requester is logged in.  
+Denies request if the user is not authenticated.  
+"""
 def handle_who(conn, user):
     if user in active_users:
         if active_users:
@@ -138,6 +200,18 @@ def handle_who(conn, user):
         conn.sendall(b">> Denied. Please login first.")
 
 
+
+"""
+Handles a client's connection, processing commands in a continuous loop.  
+
+Manages user authentication, messaging, and session handling.  
+- Receives and decodes messages from the client.  
+- Processes commands such as login, new user creation, sending messages, listing active users, and logout.  
+- Handles unexpected disconnections by removing the user from active sessions and broadcasting their departure.  
+- Ensures only logged-in users can send messages or access user-related features.  
+
+Closes the connection when the client disconnects or encounters an error.  
+"""
 def handle_client(conn, addr):
     user = None
     global num_connections
@@ -145,39 +219,31 @@ def handle_client(conn, addr):
         try:
             data = conn.recv(MAXMESSAGEBYTES).decode().strip()
             print(f">> {user}: {data}")
-
             if data.strip() == "":
                 print(f"User {user}:{addr} force quit.")
                 num_connections = num_connections - 1
                 print(f"Number of connections: {num_connections}")
                 conn.close()
                 break
-
             test = data.split()
             if not data:
                 break
         except:
             break
-
         if data.startswith("/login "):
             user = handle_login(data, conn, addr, user)
-            
-
         elif data.startswith("/newuser "):
             handle_newuser(data, conn, user)
-
         elif data == "/logout":
             if user == None:
                 conn.sendall(b">> Denied. Please login first.")
             else:
                 handle_logout(conn,user)
-
         elif data.startswith("/send "):
             if user == None:
                 conn.sendall(b">> Denied. Please login first.")
             else:
                 handle_send(data, conn, user)
-
         elif data == "/who":
             handle_who(conn,user)
 
@@ -186,13 +252,28 @@ def handle_client(conn, addr):
         del active_users[user]
         broadcast(f">> {user} left.", exclude_user=user)
 
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+
+
+
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #AF_INET specified ipv4, SOCK_STREAM specifies TCP
+server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) #removes the timeout period to reuse an address/port.
 server_socket.bind((HOST, PORT))
 server_socket.listen(MAXCLIENTS)
 print(f"Server listening on {HOST}:{PORT}...")
 load_users()
 
+
+
+"""
+Accepts incoming client connections and manages the chat server.  
+
+- Listens for new client connections and spawns a thread to handle each client.  
+- Enforces a connection limit (`MAXCLIENTS`) by rejecting excess clients with a message.  
+- Increments and tracks the number of active connections.  
+- Gracefully handles errors, printing exceptions and shutting down the server if necessary.  
+- Closes the server socket when the loop exits.  
+"""
 while True:
     try:
         conn, addr = server_socket.accept()

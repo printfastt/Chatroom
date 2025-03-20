@@ -14,11 +14,12 @@ client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((HOST, PORT))
 exit_event = threading.Event()
 
+
+"""
+Receives messages from the server and prints them without interfering
+with the user's typed but unsent input.
+"""
 def receive():
-    """
-    Receives messages from the server and prints them without interfering
-    with the user's typed but unsent input.
-    """
     while True:
         try:
             data = client_socket.recv(MAXMESSAGEBYTES).decode().strip()
@@ -46,6 +47,21 @@ threading.Thread(target=receive, daemon=True).start()
 if not exit_event.wait(timeout=0.2):
     print(">> Connected to the server. Type login or create newuser:")
 
+
+
+
+"""
+Handles client-side command input and communication with the server.  
+
+- Continuously listens for user input while the exit event is not set.  
+- Processes and validates commands before sending them to the server.  
+  - Ensures correct syntax for login, new user creation, messaging, and logout.  
+  - Enforces constraints on username and password length.  
+  - Restricts message length between 1 and 256 characters.  
+- Sends valid commands to the server via `client_socket`.  
+- Handles logout by sending the command and waiting briefly before exiting.  
+- Closes the client socket when the loop exits.  
+"""
 while not exit_event.is_set():
     time.sleep(0.01) 
     while not exit_event.is_set():
