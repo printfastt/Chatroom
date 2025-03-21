@@ -12,6 +12,7 @@ import time
 
 HOST = '127.0.0.1'
 PORT = 11259
+DEBUG = 'OFF' #'ON' or 'OFF'
 
 users = {}
 active_users = {}
@@ -35,7 +36,7 @@ def load_users():
             for line in file:
                 username, password = line.strip("()\n").split(", ")
                 users[username] = password
-        print("Users loaded successfully.")
+        debugstatement("Users loaded successfully.")
     except FileNotFoundError:
         print("users.txt not found. Creating a new one.")
         open("users.txt", "w").close()
@@ -117,7 +118,7 @@ def handle_login(command, conn, addr, user):
             conn.sendall(b"Error: Usage -> login <username> <password>")
             return user
         except Exception as e:
-            print("Server error: ",e)
+            debugstatement("Server error: ",e)
             return user
 
 
@@ -128,7 +129,7 @@ def handle_login(command, conn, addr, user):
             active_users[username] = (conn, addr)
             conn.sendall(b"login confirmed.")
             broadcast(f"{username.strip()} joins.", exclude_user=username)
-            print(f"Addr {addr} logged in to {username}")
+            debugstatement(f"Addr {addr} logged in to {username}")
             return username
         else:
             conn.sendall(b"Denied. Username or password incorrect.")
@@ -149,7 +150,7 @@ def handle_newuser(command, conn, user):
         conn.sendall(b"Error: Usage -> newuser <username> <password>")
         return
     except Exception as e:
-        print("Server error: ",e)
+        debugstatement("Server error: ",e)
         return
 
 
@@ -175,12 +176,13 @@ def handle_logout(conn, user):
     global num_connections
     global active_users
     if user in active_users:
-        print(f"Client {user} : {addr} logged out.")
+        debugstatement(f"Client {user} : {addr} logged out.")
+        print(f"{user} logout.")
         conn.sendall(EXIT_SENTINEL.encode())
         del active_users[user]
         broadcast(f"{user} left.", exclude_user=user)
         num_connections = num_connections - 1
-        print(f"Number of connections: {num_connections}")
+        debugstatement(f"Number of connections: {num_connections}")
         conn.close()
         return True
     return False
@@ -206,7 +208,7 @@ def handle_send(command, conn, user):
         return
     except Exception as e:
         conn.sendall(b"Server Error sending message.")
-        print(e)
+        debugstatement("Server error: ",e)
         return  
     
     if parts[1].strip() == "all":
@@ -220,13 +222,13 @@ def handle_send(command, conn, user):
             target_conn, _ = active_users[target]
             try:
                 if user == target:
-                    target_conn.sendall(f"{user}[private]: {message}".encode())
+                    target_conn.sendall(f"{user}: {message}".encode())
                 else:
-                    target_conn.sendall(f"{THREAD_SENTINEL} {user}[private]: {message}".encode())
+                    target_conn.sendall(f"{THREAD_SENTINEL} {user}: {message}".encode())
                 print(f"{user} (to {target}): {message}")
             except Exception as a:
                 conn.sendall(b"Server Error: message couldn't be completed.")
-                print(a)
+                debugstatement("Server error: ",a)
         else:
             conn.sendall(b"Denied. User is not online.")
 
@@ -246,6 +248,11 @@ def handle_who(conn, user):
     else:
         conn.sendall(b"Denied. Please login first.")
 
+def debugstatement(message):
+    if DEBUG == 'ON':
+        print(f"=->{message}")
+    else:
+        pass   
 
 
 """
@@ -265,17 +272,23 @@ def handle_client(conn, addr):
     while True:
         try:
             data = conn.recv(MAXMESSAGEBYTES).decode().strip()
-            #print(f">> {user}: {data}")
+            debugstatement(f">> {user}: {data}")
 
 
             if data.strip() == "":
-                print(f"User {user}:{addr} force quit.")
+                debugstatement(f"User {user}:{addr} force quit.")
                 num_connections = num_connections - 1
-                print(f"Number of connections: {num_connections}")
+                debugstatement(f"Number of connections: {num_connections}")
                 conn.close()
                 break
+        except OSError:
+            debugstatement("Server full. Closing thread: {addr}")
+            return
+        except TypeError:
+            debugstatement("Server full. Closing thread: {addr}")
+            return
         except Exception as e:
-            print("Sever error: ",e)            
+            debugstatement("Sever error: ",e)            
             break
 
 
@@ -309,7 +322,7 @@ server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #AF_INET speci
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) #removes the timeout period to reuse an address/port.
 server_socket.bind((HOST, PORT))
 server_socket.listen(MAXCLIENTS)
-print(f"Server listening on {HOST}:{PORT}...")
+debugstatement(f"Server listening on {HOST}:{PORT}...")
 load_users()
 
 
@@ -326,7 +339,7 @@ Accepts incoming client connections and manages the chat server.
 while True:
     try:
         conn, addr = server_socket.accept()
-        print(f"Client {addr} connected...")
+        debugstatement(f"Client {addr} connected...")
         if num_connections <= MAXCLIENTS:
             threading.Thread(target=handle_client, args=(conn, addr)).start()
             if num_connections == MAXCLIENTS:
@@ -334,15 +347,14 @@ while True:
                 time.sleep(.01)
                 conn.sendall(EXIT_SENTINEL.encode())
                 conn.close()
-                print(f"Chatroom full. Rejecting client (connections = {num_connections})")
+                debugstatement(f"Chatroom full. Rejecting client (connections = {num_connections})")
 
             else:
                 num_connections = num_connections + 1
-                print(f"Number of connections: {num_connections}")
+                debugstatement(f"Number of connections: {num_connections}")
 
     except Exception as e:
-        print(f"Server Error: {e}")
-        print("Exiting...")
+        debugstatement(f"Server Error: {e}")
         break
 
 

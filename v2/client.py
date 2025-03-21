@@ -106,7 +106,7 @@ while not exit_event.is_set():
                 break
 
 
-            if command.startswith("/login ") or command.startswith("/login"):
+            if command.startswith("/login ") or parts[0] == "/login":
                 if is_logged_in:
                     print(">Denied. Already logged in.")
                     break
